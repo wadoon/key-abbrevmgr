@@ -2,7 +2,9 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    kotlin("jvm") version "2.2.0"
+    kotlin("jvm") version "2.2.10"
+    kotlin("plugin.serialization") version "2.2.10"
+
     id("org.jetbrains.dokka") version "2.0.0"
     `java-library`
     `maven-publish`
@@ -11,7 +13,7 @@ plugins {
 }
 
 group = "io.github.wadoon.key"
-version = "1.0-SNAPSHOT"
+version = "0.1-SNAPSHOT"
 
 val keyVersion = System.getenv("KEY_VERSION") ?: "2.12.4-SNAPSHOT"
 
@@ -20,9 +22,11 @@ repositories {
     maven { url = uri("https://central.sonatype.com/repository/maven-snapshots")}
 }
 
+val plugin by configurations.creating
+
 dependencies {
     implementation(kotlin("stdlib-jdk8"))
-    implementation(kotlin("serialization"))
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     implementation("org.key-project:key.core:${keyVersion}")
     implementation("org.key-project:key.ui:${keyVersion}")
@@ -85,7 +89,7 @@ publishing {
 
 
             pom {
-                name = "key-ci-tool"
+                name = "key-abbrevmgr"
                 description = project.description
                 url = "https://github.com/wadoon/key-citool"
                 licenses {

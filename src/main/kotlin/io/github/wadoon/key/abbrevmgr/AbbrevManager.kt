@@ -21,8 +21,12 @@ import de.uka.ilkd.key.pp.AbbrevMap
 import de.uka.ilkd.key.pp.LogicPrinter
 import de.uka.ilkd.key.proof.Node
 import de.uka.ilkd.key.proof.Proof
-import de.uka.ilkd.key.proof.mgt.TaskTreeModel
 import de.uka.ilkd.key.util.parsing.BuildingException
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.awt.BorderLayout
@@ -34,14 +38,12 @@ import java.beans.PropertyChangeListener
 import java.io.File
 import java.io.IOException
 import java.lang.ref.WeakReference
-import java.nio.file.Files
-import java.nio.file.Path
-import java.util.stream.Collectors
 import javax.swing.*
-import javax.swing.event.ListSelectionEvent
 import javax.swing.event.ListSelectionListener
+import kotlin.streams.asSequence
 
 
+@ExperimentalSerializationApi
 private val LOGGER: Logger = LoggerFactory.getLogger(AbbrevManager::class.java)
 
 /**
@@ -52,6 +54,7 @@ private val LOGGER: Logger = LoggerFactory.getLogger(AbbrevManager::class.java)
  * @author Alexander Weigl
  * @version 1 (14.07.23)
  */
+@ExperimentalSerializationApi
 @KeYGuiExtension.Info(
     name = "Abbreviation Manager", description = "A widget for the management of abbreviation in proofs. " +
             "Allows storing and loading abbreviations of text files.", disabled = false, experimental = false
@@ -70,8 +73,11 @@ class AbbrevManager : KeYGuiExtension, KeYGuiExtension.LeftPanel {
 
 data class AbbrevListEntry(var term: JTerm, var abbrev: String)
 
-class AbbrevManagerPanel(private val window: MainWindow, private val mediator: KeYMediator) : JPanel(),
-    TabPanel {
+@Serializable
+data class StorableAbbreviation(var term: String, var abbrev: String)
+
+@ExperimentalSerializationApi
+class AbbrevManagerPanel(private val window: MainWindow, private val mediator: KeYMediator) : JPanel(), TabPanel {
     private val listAbbrev = JList<AbbrevListEntry>()
     private val modelAbbrev = DefaultListModel<AbbrevListEntry>()
     private val actionLoad: KeyAction = LoadAction()
@@ -79,7 +85,7 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
     private val actionTransfer: KeyAction = TransferAbbrevAction()
 
     private val updateListListener: PropertyChangeListener =
-        PropertyChangeListener { it: PropertyChangeEvent? -> updateList() }
+        PropertyChangeListener { _: PropertyChangeEvent? -> updateList() }
 
     /**
      * Stores a reference to the proof to which the [.updateListListener] is attached to.
@@ -110,14 +116,12 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
         mediator.addKeYSelectionListener(object : KeYSelectionListener {
             override fun selectedNodeChanged(e: KeYSelectionEvent<Node?>) {
                 // if oldProof exists, remove updateListListener from it.
-                if (oldProof != null) {
-                    val oldp: Proof? = oldProof?.get()
-                    oldp?.abbreviations()?.removePropertyChangeListener(updateListListener)
+                oldProof.get()?.let { old ->
+                    old.abbreviations().removePropertyChangeListener(updateListListener)
                     oldProof = null
                 }
                 // if currently there is a selected proof, attach updateListListener to it
-                val selectedProof: Proof? = mediator.selectedProof
-                if (selectedProof != null) {
+                mediator.selectedProof?.let { selectedProof ->
                     selectedProof.abbreviations().addPropertyChangeListener(updateListListener)
                     oldProof = WeakReference(selectedProof)
                 }
@@ -160,16 +164,19 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
             val result: Int = fc.showOpenDialog(window)
             if (result == JFileChooser.APPROVE_OPTION) {
                 val abbrevMap = mediator.notationInfo.abbrevMap.export()
-                val file: Path = fc.selectedFile.toPath()
                 try {
-                    Files.writeString(
-                        file,
-                        abbrevMap.stream()
-                            .map { it ->
-                                it.second + SEPERATOR_ABBREV_FILE +
-                                        LogicPrinter.quickPrintTerm(it.first, mediator.services)
-                            }
-                            .collect(Collectors.joining("\n")))
+                    fc.selectedFile.outputStream().use { out ->
+                        Json.encodeToStream(
+                            abbrevMap.stream().asSequence()
+                                .map { (a, b) ->
+                                    StorableAbbreviation(
+                                        LogicPrinter.quickPrintTerm(a, mediator.services),
+                                        b
+                                    )
+                                }
+                                .toList(),
+                            out)
+                    }
                 } catch (ex: IOException) {
                     LOGGER.error("File I/O error", ex)
                     JOptionPane.showMessageDialog(window, "I/O Error:" + ex.message)
@@ -178,6 +185,7 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
         }
     }
 
+    @ExperimentalSerializationApi
     private inner class LoadAction : KeyAction() {
         init {
             setName("Load abbreviations")
@@ -188,8 +196,7 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
         override fun actionPerformed(e: ActionEvent?) {
             val fc: KeYFileChooser =
                 KeYFileChooser.getFileChooser("Select file to load proof or problem")
-            val mainWindow: MainWindow? = window
-            val result: Int = fc.showOpenDialog(mainWindow)
+            val result: Int = fc.showOpenDialog(window)
             if (result == JFileChooser.APPROVE_OPTION) {
                 val abbrevMap: AbbrevMap = mediator.notationInfo.abbrevMap
                 val kio = KeyIO(mediator.services)
@@ -197,27 +204,19 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
                 val file: File = fc.selectedFile
 
                 try {
-                    for (line in Files.readAllLines(file.toPath())) {
-                        if (line.isBlank() || line.startsWith("#") || line.startsWith("//")) {
-                            val split = line.split(SEPERATOR_ABBREV_FILE.toRegex()).dropLastWhile { it.isEmpty() }
-                                .toTypedArray()
-                            if (split.size == 2) {
-                                val abbrevName = split[0]
-                                val term: JTerm = kio.parseExpression(split[1])
-                                try {
-                                    abbrevMap.put(term, abbrevName.trim { it <= ' ' }, true)
-                                } catch (ex: AbbrevException) {
-                                    LOGGER.error(
-                                        "Could not add {} with {} to abbrevMap",
-                                        abbrevName, term, ex
-                                    )
-                                }
-                            }
+                    file.inputStream().use { stream ->
+                        val a = Json.decodeFromStream<StorableAbbreviation>(stream)
+                        val term: JTerm = kio.parseExpression(a.term)
+                        val abbrevName = a.abbrev
+                        try {
+                            abbrevMap.put(term, abbrevName.trim { it <= ' ' }, true)
+                        } catch (ex: AbbrevException) {
+                            LOGGER.error("Could not add {} with {} to abbrevMap", abbrevName, term, ex)
                         }
                     }
                 } catch (ex: IOException) {
                     LOGGER.error("File I/O error", ex)
-                    JOptionPane.showMessageDialog(mainWindow, "I/O Error:" + ex.message)
+                    JOptionPane.showMessageDialog(window, "I/O Error:" + ex.message)
                 }
             }
         }
@@ -227,7 +226,7 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
     private inner class RemoveAbbrev : KeyAction() {
         init {
             setName("Remove abbreviation")
-            listAbbrev.addListSelectionListener { e: ListSelectionEvent? ->
+            listAbbrev.addListSelectionListener { _ ->
                 val selectedValue = listAbbrev.getSelectedValue()
                 setEnabled(selectedValue != null)
             }
@@ -244,7 +243,7 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
         init {
             setName("Toggle abbreviation")
 
-            listAbbrev.addListSelectionListener(ListSelectionListener { e: ListSelectionEvent? ->
+            listAbbrev.addListSelectionListener(ListSelectionListener { _ ->
                 val selectedValue = listAbbrev.getSelectedValue()
                 if (selectedValue == null) {
                     setEnabled(false)
@@ -262,28 +261,25 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
         }
 
         override fun actionPerformed(e: ActionEvent?) {
-            val term: JTerm? = listAbbrev.getSelectedValue().term
-            val value: Boolean = mediator.notationInfo.abbrevMap.isEnabled(term)
-            mediator.notationInfo.abbrevMap.setEnabled(term, !value)
-            window.makePrettyView()
+            listAbbrev.getSelectedValue()?.term?.let { term ->
+                val value: Boolean = mediator.notationInfo.abbrevMap.isEnabled(term)
+                mediator.notationInfo.abbrevMap.setEnabled(term, !value)
+                window.makePrettyView()
+            }
         }
     }
 
     private inner class ChangeAbbrev : KeyAction() {
         init {
             setName("Change abbreviation")
-            listAbbrev.addListSelectionListener { e: ListSelectionEvent? ->
+            listAbbrev.addListSelectionListener { _ ->
                 val selectedValue = listAbbrev.getSelectedValue()
                 setEnabled(selectedValue != null)
             }
         }
 
         override fun actionPerformed(e: ActionEvent?) {
-            val selected = listAbbrev.getSelectedValue()
-
-            if (selected == null) {
-                return
-            }
+            val selected = listAbbrev.getSelectedValue() ?: return
 
             val answer: String? =
                 JOptionPane.showInputDialog(
@@ -303,15 +299,14 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
     private inner class ChangeTerm : KeyAction() {
         init {
             setName("Change term")
-            listAbbrev.addListSelectionListener { e ->
+            listAbbrev.addListSelectionListener { _ ->
                 val selectedValue = listAbbrev.getSelectedValue()
                 setEnabled(selectedValue != null)
             }
         }
 
         override fun actionPerformed(e: ActionEvent?) {
-            val selected = listAbbrev.getSelectedValue()
-            if (selected == null) return
+            val selected = listAbbrev.getSelectedValue() ?: return
             var prettyPrinted: String = LogicPrinter.quickPrintTerm(selected.term, mediator.services)
 
             while (true) { // abort if the user abort the input dialog, or the expression was
@@ -347,26 +342,39 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
         }
     }
 
+    val loadedProofs = mutableSetOf<WeakReference<Proof>>()
+
+    init {
+        mediator.addKeYSelectionListener(object : KeYSelectionListener {
+            override fun selectedProofChanged(e: KeYSelectionEvent<Proof?>) {
+                e.previousSelection?.let { p -> loadedProofs.add(WeakReference(p)) }
+                mediator.selectedProof?.let { p -> loadedProofs.add(WeakReference(p)) }
+            }
+        })
+    }
+
     private inner class TransferAbbrevAction : KeyAction() {
-        private val TRANSFER_ICON: IconFontProvider = IconFontProvider(
+        private val iconTransfer: IconFontProvider = IconFontProvider(
             FontAwesomeSolid.ANGLE_DOUBLE_DOWN,
             Color.black
         )
 
         init {
             setName("Transfer abbreviation from...")
-            setIcon(TRANSFER_ICON.get())
+            setIcon(iconTransfer.get())
             tooltip = "Transfers all abbreviation from the selected proof to this proof. Best effort. No guarantees!"
         }
 
         override fun actionPerformed(e: ActionEvent?) {
-            val selected: Proof? = mediator.selectedProof
-            if (selected == null) return
+            val selected: Proof = mediator.selectedProof ?: return
 
 
-            val proofs = window.proofList.model.getLoadedProofs()
-                .filter { it !== selected }
-                .toTypedArray()
+            //val proofs = window.proofList.model.getLoadedProofs()
+            val proofs =
+                loadedProofs
+                    .mapNotNull { it.get() }
+                    .filter { it !== selected }
+                    .toTypedArray()
 
             val from: Proof? = JOptionPane.showInputDialog(
                 window,
@@ -381,31 +389,17 @@ class AbbrevManagerPanel(private val window: MainWindow, private val mediator: K
                 // print and parse to ensure the different namespace
                 val term: JTerm =
                     kio.parseExpression(
-                        LogicPrinter.quickPrintTerm(pair.first, from.services)
+                        LogicPrinter.quickPrintTerm(pair.key, from.services)
                     )
-                selected.abbreviations().forcePut(pair.second, term)
+                selected.abbreviations().forcePut(pair.value, term)
             }
             window.makePrettyView()
         }
     }
-
-    companion object {
-        /**
-         * seperator between abbreviation label and term inside of stored files
-         */
-        const val SEPERATOR_ABBREV_FILE: String = "::=="
-    }
 }
-
-private fun AbbrevMap.addPropertyChangeListener(updateListListener: PropertyChangeListener) {}
-
-private fun AbbrevMap?.removePropertyChangeListener(updateListListener: PropertyChangeListener) {
-    TODO("Not yet implemented")
-}
-
-private fun AbbrevMap.forcePut(second: String, term: JTerm) {}
-private fun TaskTreeModel.getLoadedProofs(): List<Proof> = listOf()
-private fun AbbrevMap.remove(term: JTerm): Boolean = TODO()
 
 private fun AbbrevMap.asSeq() =
-    export().asSequence().map { AbbrevListEntry(it.first, it.second) }
+    export().asSequence().map { AbbrevListEntry(it.key, it.value) }
+
+private fun <T> WeakReference<T>?.get() = this?.get()
+
