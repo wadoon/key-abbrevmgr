@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "io.github.wadoon.key"
-version = "0.1"
+version = "0.2-SNAPSHOT"
 description = "Manager for term abbreviation for the KeY theorem prover."
 
 val keyVersion = System.getenv("KEY_VERSION") ?: "2.12.4-SNAPSHOT"
