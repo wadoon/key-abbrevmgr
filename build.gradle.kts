@@ -13,7 +13,8 @@ plugins {
 }
 
 group = "io.github.wadoon.key"
-version = "0.1-SNAPSHOT"
+version = "0.1"
+description = "Manager for term abbreviation for the KeY theorem prover."
 
 val keyVersion = System.getenv("KEY_VERSION") ?: "2.12.4-SNAPSHOT"
 
@@ -28,9 +29,9 @@ dependencies {
     implementation(kotlin("stdlib-jdk8"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
-    implementation("org.key-project:key.core:${keyVersion}")
-    implementation("org.key-project:key.ui:${keyVersion}")
-    implementation("org.slf4j:slf4j-api:2.0.17")
+    compileOnly("org.key-project:key.core:${keyVersion}")
+    compileOnly("org.key-project:key.ui:${keyVersion}")
+    compileOnly("org.slf4j:slf4j-api:2.0.17")
 
     testImplementation(kotlin("test"))
     testImplementation("com.google.truth:truth:1.4.4")
@@ -106,8 +107,8 @@ publishing {
                     }
                 }
                 scm {
-                    connection = "git@github.com:wadoon/key-citool.git"
-                    url = "https://github.com/wadoon/key-citool"
+                    connection = "git@github.com:wadoon/key-abbrevmgr.git"
+                    url = "https://github.com/wadoon/key-abbrevmgr"
                 }
             }
         }
@@ -120,7 +121,7 @@ nexusPublishing {
             nexusUrl = uri("https://ossrh-staging-api.central.sonatype.com/service/local/")
             snapshotRepositoryUrl = uri("https://central.sonatype.com/repository/maven-snapshots/")
 
-            stagingProfileId.set("org.key-project")
+            stagingProfileId.set("io.github.wadoon")
             val user: String = project.properties.getOrDefault("ossrhUsername", "").toString()
             val pwd: String = project.properties.getOrDefault("ossrhPassword", "").toString()
 
