@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.net.URI
 
 plugins {
     kotlin("jvm") version "2.2.10"
@@ -13,7 +14,7 @@ plugins {
 }
 
 group = "io.github.wadoon.key"
-version = "0.2-SNAPSHOT"
+version = "0.2.0-SNAPSHOT"
 description = "Manager for term abbreviation for the KeY theorem prover."
 
 val keyVersion = System.getenv("KEY_VERSION") ?: "2.12.4-SNAPSHOT"
@@ -23,10 +24,8 @@ repositories {
     maven { url = uri("https://central.sonatype.com/repository/maven-snapshots")}
 }
 
-val plugin by configurations.creating
-
 dependencies {
-    implementation(kotlin("stdlib-jdk8"))
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.10")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     compileOnly("org.key-project:key.core:${keyVersion}")
@@ -135,6 +134,86 @@ signing {
     useGpgCmd()
     sign(publishing.publications["mavenJava"])
 }
+
+
+fun makeDependencyUrl(group: String, name: String, version: String): URI {
+    val url = project.repositories.mavenCentral().url.toString().trimEnd('/')
+    val g = group.replace('.', '/')
+    return uri("$url/$g/$name/$version/$name-$version.jar")
+}
+
+fun makeDependencyUrl(it: Dependency): URI {
+    return makeDependencyUrl(it.group ?: "", it.name, it.version ?: "")
+}
+
+fun dependenciesURLs(): Sequence<URI> {
+    val dependencies = project.configurations.getByName("implementation").dependencies.asSequence()
+    return dependencies.map(::makeDependencyUrl) + sequenceOf(
+        makeDependencyUrl(
+            project.group.toString(),
+            project.name,
+            project.version.toString()
+        )
+    )
+}
+
+tasks.register("makeDownloadScript") {
+    outputs.file("download.sh")
+
+    doLast {
+        val dependenciesURLs = dependenciesURLs()
+        dependenciesURLs.forEach {
+            println(it)
+        }
+
+        file("download.sh").bufferedWriter().use { out ->
+            fun URI.filename(): String = this.path.takeLastWhile { it != '/' }
+            val downloadedJars = dependenciesURLs.map {
+                $$"$TARGET/" + it.filename()
+            }
+
+            val downloads = dependenciesURLs.zip(downloadedJars)
+                .joinToString("") { (u, f) ->
+                    "|download '$u'\\\n" +
+                            "|         \"$f\"\n"
+                }
+
+            out.write(
+                $$"""
+                |#!/bin/sh
+                
+                |TARGET=$(readlink -f "$${project.name}-$${project.version}")
+                
+                |mkdir -p $TARGET
+                |function download() {
+                |    # Use curl or wget
+                |    if command -v wget >/dev/null 2>&1; then
+                |        wget -timestamping -O    "$2" "$1"
+                |    elif command -v curl >/dev/null 2>&1; then
+                |        curl -L -o "$2" "$1"
+                |    else
+                |        echo "Error: Neither curl nor wget is installed."
+                |        exit 1
+                |    fi
+                |}
+            
+                $$downloads
+                 
+                |echo "Extend your classpath by following Jars, either using the whole folder, or by single Jars."
+                |echo "java -cp key-2.14.4-dev.jar:$TARGET/*"
+                |echo "or: java -cp key-2.14.4-dev.jar:$${downloadedJars.joinToString(":")}"                
+                """.trimMargin()
+            )
+
+
+        }
+    }
+}
+
+
+
+
+
 
 /*dokka {
     moduleName.set("key-citool")

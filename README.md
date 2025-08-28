@@ -51,9 +51,13 @@ dependencies {
 
 ## Releasing `key-abbrevmgr`
 
+
 1. Remove SNAPSHOT from version number
 2. Update `README.md`
-3. Create new commit and tag. 
-4. `gradle publishToCentral closeAndReleaseCentralStagingRepository`.
-5. Create new GitHub release
-6. Set version number to SNAPSHOT
+3. Create new commit and tag.
+4. `gradle makeDownloadScript`
+5. `bash download.sh && zip -r key-interaction-version.zip key-interaction-version`
+6. `gradle publishToCentral closeAndReleaseCentralStagingRepository`
+7. Create new GitHub release, upload `key-interaction-version.zip`
+8. Set version++, re-add to `SNAPSHOT` and commit.
+
