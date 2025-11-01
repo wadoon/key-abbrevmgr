@@ -3,10 +3,10 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.net.URI
 
 plugins {
-    kotlin("jvm") version "2.2.10"
-    kotlin("plugin.serialization") version "2.2.10"
+    kotlin("jvm") version "2.2.21"
+    kotlin("plugin.serialization") version "2.2.21"
 
-    id("org.jetbrains.dokka") version "2.0.0"
+    id("org.jetbrains.dokka") version "2.1.0"
     `java-library`
     `maven-publish`
     signing
@@ -25,7 +25,7 @@ repositories {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.10")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.21")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     compileOnly("org.key-project:key.core:${keyVersion}")
@@ -33,7 +33,7 @@ dependencies {
     compileOnly("org.slf4j:slf4j-api:2.0.17")
 
     testImplementation(kotlin("test"))
-    testImplementation("com.google.truth:truth:1.4.4")
+    testImplementation("com.google.truth:truth:1.4.5")
 }
 
 tasks.test {
